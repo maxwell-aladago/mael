@@ -73,12 +73,12 @@ class ConceptualCaptions(ImageFolder):
             transform=transform
         )
 
-        self.samples = np.lod(f"{self.root}/captions.npy", allow_pickle=True)
+        self.samples = np.load(f"{self.root}/captions.npy", allow_pickle=True)
 
         for i, (path, caption) in enumerate(self.samples):
             self.samples[i] = (f"{self.root}/train/{path}", caption)
 
-    def __getitem__(self, index:int) -> Tuple[Any, Any, Any]:
+    def __getitem__(self, index:int) -> Tuple[Any, Any]:
         """
         Args:
             index (int): Index
@@ -86,14 +86,14 @@ class ConceptualCaptions(ImageFolder):
         Returns:
             tuple: (sample, target) where target is class_index of the target class.
         """
-        target = None
+        # target = None
         path, caption = self.samples[index]
 
         sample = self.loader(path)
 
         if self.transform is not None:
             sample = self.transform(sample)
-        if self.target_transform is not None:
-            target = self.target_transform(target)
+        # if self.target_transform is not None:
+        #     target = self.target_transform(target)
 
-        return sample, target, caption
+        return sample, caption

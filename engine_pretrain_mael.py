@@ -36,7 +36,7 @@ def train_one_epoch(model: torch.nn.Module,
     if log_writer is not None:
         print('log_dir: {}'.format(log_writer.log_dir))
 
-    for data_iter_step, (samples, _, captions) in enumerate(metric_logger.log_every(data_loader, print_freq, header)):
+    for data_iter_step, (samples, captions) in enumerate(metric_logger.log_every(data_loader, print_freq, header)):
 
         # we use a per iteration (instead of per epoch) lr scheduler
         if data_iter_step % accum_iter == 0:
@@ -44,17 +44,25 @@ def train_one_epoch(model: torch.nn.Module,
 
         samples = samples.to(device, non_blocking=True)
 
-        captions = tokenizer(captions, return_tensors='pt',
-                             max_length=args.num_tokens,
-                             return_token_id_types=False,
-                             padding='max_length', truncation=True)
+        captions = tokenizer(captions,
+                             return_tensors='pt',
+                             max_length=args.num_text_tokens,
+                             padding='max_length',
+                             truncation=True,
+                             return_token_type_ids=False
+                             )
 
         for k, v in captions.items():
             captions[k] = v.to(device, non_blocking=True)
 
         with torch.cuda.amp.autocast():
-            loss, _, _ = model(samples, mask_ratio=args.mask_ratio)
+            loss, _, _ = model(samples, mask_ratio=args.mask_ratio, captions=captions)
 
+        # for n, p in model.named_parameters():
+        #     if p.requires_grad:
+        #         if p.grad is None:
+        #             print(n)
+        # exit()
         loss_value = loss.item()
 
         if not math.isfinite(loss_value):
@@ -82,7 +90,8 @@ def train_one_epoch(model: torch.nn.Module,
             epoch_1000x = int((data_iter_step / len(data_loader) + epoch) * 1000)
             log_writer.add_scalar('train_loss', loss_value_reduce, epoch_1000x)
             log_writer.add_scalar('lr', lr, epoch_1000x)
-
+            # log_writer.add_scalar('mae_loss', misc.all_reduce_mean(mae_loss), epoch_1000x)
+            # log_writer.add_scalar('cont_loss', misc.all_reduce_mean(cont_loss), epoch_1000x)
 
     # gather the stats from all processes
     metric_logger.synchronize_between_processes()

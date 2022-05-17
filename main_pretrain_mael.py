@@ -20,10 +20,10 @@ import torch
 import torch.backends.cudnn as cudnn
 from torch.utils.tensorboard import SummaryWriter
 import torchvision.transforms as transforms
-import torchvision.datasets as datasets
+# import torchvision.datasets as datasets
 from transformers import BertTokenizer
-
-import timm
+from torchvision.transforms import InterpolationMode
+# import timm
 
 # assert timm.__version__ == "0.3.2"  # version check
 import timm.optim.optim_factory as optim_factory
@@ -34,7 +34,7 @@ from util.misc import NativeScalerWithGradNormCount as NativeScaler
 import models_mael
 
 from engine_pretrain_mael import train_one_epoch
-from imnet_datasets import ImageFolderWithCaptions
+from imnet_datasets import ConceptualCaptions
 
 
 def get_args_parser():
@@ -58,7 +58,14 @@ def get_args_parser():
     parser.add_argument('--norm_pix_loss', action='store_true',
                         help='Use (per-patch) normalized pixels as targets for computing loss')
     parser.set_defaults(norm_pix_loss=False)
-    parser.add_argument("--num_text_tokens", default=8, type=int, help="Number of text tokens")
+
+    # Language Model Parameters
+    parser.add_argument('--l_model', default='google/bert_uncased_L-8_H-256_A-4', type=str, metavar='LANGUAGE MODEL',
+                        help='Name of the text encoder')
+    parser.add_argument('--pretrained', default=True, type=bool, help='Use a pretrained LM')
+    parser.add_argument('--text_output', default='all_tokens', type=str, help='The desired output of the text encoder')
+    parser.add_argument("--num_text_tokens", default=16, type=int, help="Number of text tokens")
+
     # Optimizer parameters
     parser.add_argument('--weight_decay', type=float, default=0.05,
                         help='weight decay (default: 0.05)')
@@ -74,17 +81,17 @@ def get_args_parser():
                         help='epochs to warmup LR')
 
     # Dataset parameters
-    parser.add_argument('--data_path', default='/home/max/datasets/Imagenet', type=str,
+    parser.add_argument('--data_path', default='/home/max/datasets/cc', type=str,
                         help='dataset path')
 
-    parser.add_argument('--output_dir', default='/home/max/Documents/output_dir',
+    parser.add_argument('--output_dir', default='/home/max/Documents/output_dir/MAEL/pretrained',
                         help='path where to save, empty for no saving')
-    parser.add_argument('--log_dir', default='/home/max/Documents/output_dir',
+    parser.add_argument('--log_dir', default='/home/max/Documents/output_dir/MAEL/pretrained',
                         help='path where to tensorboard log')
     parser.add_argument('--device', default='cuda',
                         help='device to use for training / testing')
     parser.add_argument('--seed', default=0, type=int)
-    parser.add_argument('--resume', default='/home/max/Documents/output_dir/checkpoint-0.pth',
+    parser.add_argument('--resume', default='',
                         help='resume from checkpoint')
 
     parser.add_argument('--start_epoch', default=0, type=int, metavar='N',
@@ -123,20 +130,18 @@ def main(args):
 
     # simple augmentation
     transform_train = transforms.Compose([
-            transforms.RandomResizedCrop(args.input_size, scale=(0.2, 1.0), interpolation=3),  # 3 is bicubic
-            transforms.RandomHorizontalFlip(),
-            transforms.ToTensor(),
-            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])])
+        transforms.RandomResizedCrop(args.input_size, scale=(0.2, 1.0), interpolation=InterpolationMode.BICUBIC),
+        transforms.RandomHorizontalFlip(),
+        transforms.ToTensor(),
+        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])])
 
     tokenizer = BertTokenizer.from_pretrained("google/bert_uncased_L-8_H-256_A-4")
 
     # might have to redefine this
     # dataset_train = datasets.ImageFolder(os.path.join(args.data_path, 'train'), transform=transform_train)
-    dataset_train = ImageFolderWithCaptions(root=os.path.join(args.data_path, 'train'),
-                                            # tokenizer=tokenizer,
-                                            transform=transform_train,
-                                            # num_tokens=args.num_text_tokens
-                                            )
+    dataset_train = ConceptualCaptions(root=os.path.join(args.data_path, 'cc3m'),
+                                       transform=transform_train,
+                                       )
     print(dataset_train)
 
     if True:  # args.distributed:
@@ -162,9 +167,13 @@ def main(args):
         pin_memory=args.pin_mem,
         drop_last=True,
     )
-    
+
     # define the model
-    model = models_mael.__dict__[args.model](norm_pix_loss=args.norm_pix_loss, num_text_tokens=args.num_text_tokens)
+    model = models_mael.__dict__[args.model](l_model=args.l_model,
+                                             pretrained=args.pretrained,
+                                             num_text_tokens=args.num_text_tokens,
+                                             text_output=args.text_output,
+                                             norm_pix_loss=args.norm_pix_loss)
 
     model.to(device)
 
@@ -172,7 +181,7 @@ def main(args):
     print("Model = %s" % str(model_without_ddp))
 
     eff_batch_size = args.batch_size * args.accum_iter * misc.get_world_size()
-    
+
     if args.lr is None:  # only base_lr is specified
         args.lr = args.blr * eff_batch_size / 256
 
@@ -185,7 +194,7 @@ def main(args):
     if args.distributed:
         model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[args.gpu], find_unused_parameters=False)
         model_without_ddp = model.module
-    
+
     # following timm: set wd as 0 for bias and norm layers
     param_groups = optim_factory.add_weight_decay(model_without_ddp, args.weight_decay)
     optimizer = torch.optim.AdamW(param_groups, lr=args.lr, betas=(0.9, 0.95))
@@ -211,7 +220,7 @@ def main(args):
                 loss_scaler=loss_scaler, epoch=epoch)
 
         log_stats = {**{f'train_{k}': v for k, v in train_stats.items()},
-                        'epoch': epoch,}
+                     'epoch': epoch, }
 
         if args.output_dir and misc.is_main_process():
             if log_writer is not None:
@@ -228,5 +237,13 @@ if __name__ == '__main__':
     args = get_args_parser()
     args = args.parse_args()
     if args.output_dir:
+        # google_drive = "/run/user/1000/gvfs/google-drive:host=dartmouth.edu,user=maxwell.m.aladago.gr/Research"
+        # if not os.path.exists(google_drive):
+        args.output_dir = f"{args.output_dir}/{args.model}-PTLM_{args.pretrained}/" \
+                          f"{args.mask_ratio}-{args.text_output}/{args.seed}"
+        args.log_dir = f"{args.log_dir}/{args.model}-PTLM_{args.pretrained}/" \
+                       f"{args.mask_ratio}-{args.text_output}/{args.seed}/runs"
+
         Path(args.output_dir).mkdir(parents=True, exist_ok=True)
+
     main(args)

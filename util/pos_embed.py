@@ -29,14 +29,15 @@ def get_2d_sincos_pos_embed(embed_dim, grid_size, cls_token=False, text_tokens=0
     grid = np.stack(grid, axis=0)
 
     grid = grid.reshape([2, 1, grid_size, grid_size])
+
     pos_embed = get_2d_sincos_pos_embed_from_grid(embed_dim, grid)
     if cls_token:
         pos_embed = np.concatenate([np.zeros([1, embed_dim]), pos_embed], axis=0)
     if text_tokens > 0:
         # text_pos_embed = torch.nn.init.normal_(torch.empty((text_tokens, embed_dim)), std=.02)
-        text_pos_embed = get_1d_sincos_pos_embed_from_grid(embed_dim, text_tokens)
-        print(text_pos_embed.shape, text_tokens)
-        exit()
+        j = grid.max()
+        pos = np.arange(j, text_tokens + j) + 1
+        text_pos_embed = get_1d_sincos_pos_embed_from_grid(embed_dim, pos)
         pos_embed = np.concatenate([pos_embed, text_pos_embed], axis=0)
 
     return pos_embed
