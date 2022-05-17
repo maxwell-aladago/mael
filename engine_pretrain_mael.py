@@ -58,11 +58,6 @@ def train_one_epoch(model: torch.nn.Module,
         with torch.cuda.amp.autocast():
             loss, _, _ = model(samples, mask_ratio=args.mask_ratio, captions=captions)
 
-        # for n, p in model.named_parameters():
-        #     if p.requires_grad:
-        #         if p.grad is None:
-        #             print(n)
-        # exit()
         loss_value = loss.item()
 
         if not math.isfinite(loss_value):

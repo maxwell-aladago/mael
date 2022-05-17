@@ -21,9 +21,6 @@ import torch
 import torch.backends.cudnn as cudnn
 from torch.utils.tensorboard import SummaryWriter
 
-import timm
-
-assert timm.__version__ == "0.3.2" # version check
 from timm.models.layers import trunc_normal_
 from timm.data.mixup import Mixup
 from timm.loss import LabelSmoothingCrossEntropy, SoftTargetCrossEntropy
@@ -186,18 +183,13 @@ def main(args):
                       'This will slightly alter validation results as extra duplicate entries are added to achieve '
                       'equal num of samples per-process.')
             sampler_val = torch.utils.data.DistributedSampler(
-                dataset_val, num_replicas=num_tasks, rank=global_rank, shuffle=True)  # shuffle=True to reduce monitor bias
+                dataset_val, num_replicas=num_tasks, rank=global_rank,
+                shuffle=True)  # shuffle=True to reduce monitor bias
         else:
             sampler_val = torch.utils.data.SequentialSampler(dataset_val)
     else:
         sampler_train = torch.utils.data.RandomSampler(dataset_train)
         sampler_val = torch.utils.data.SequentialSampler(dataset_val)
-
-    if global_rank == 0 and args.log_dir is not None and not args.eval:
-        os.makedirs(args.log_dir, exist_ok=True)
-        log_writer = SummaryWriter(log_dir=args.log_dir)
-    else:
-        log_writer = None
 
     data_loader_train = torch.utils.data.DataLoader(
         dataset_train, sampler=sampler_train,
@@ -223,7 +215,7 @@ def main(args):
             mixup_alpha=args.mixup, cutmix_alpha=args.cutmix, cutmix_minmax=args.cutmix_minmax,
             prob=args.mixup_prob, switch_prob=args.mixup_switch_prob, mode=args.mixup_mode,
             label_smoothing=args.smoothing, num_classes=args.nb_classes)
-    
+
     model = models_vit.__dict__[args.model](
         num_classes=args.nb_classes,
         drop_path_rate=args.drop_path,
@@ -256,6 +248,10 @@ def main(args):
         # manually initialize fc layer
         trunc_normal_(model.head.weight, std=2e-5)
 
+        old_args = checkpint['args']
+        args.output_dir = old_args.output_dir.replace("pretrained", "finetuned")
+        args.log_dir = old.args.log_dir.replace("pretrained", "finetuned")
+
     model.to(device)
 
     model_without_ddp = model
@@ -265,7 +261,16 @@ def main(args):
     print('number of params (M): %.2f' % (n_parameters / 1.e6))
 
     eff_batch_size = args.batch_size * args.accum_iter * misc.get_world_size()
-    
+
+    if args.output_dir:
+        Path(args.output_dir).mkdir(parents=True, exist_ok=True)
+
+    if global_rank == 0 and args.log_dir is not None and not args.eval:
+        os.makedirs(args.log_dir, exist_ok=True)
+        log_writer = SummaryWriter(log_dir=args.log_dir)
+    else:
+        log_writer = None
+
     if args.lr is None:  # only base_lr is specified
         args.lr = args.blr * eff_batch_size / 256
 
@@ -281,9 +286,9 @@ def main(args):
 
     # build optimizer with layer-wise lr decay (lrd)
     param_groups = lrd.param_groups_lrd(model_without_ddp, args.weight_decay,
-        no_weight_decay_list=model_without_ddp.no_weight_decay(),
-        layer_decay=args.layer_decay
-    )
+                                        no_weight_decay_list=model_without_ddp.no_weight_decay(),
+                                        layer_decay=args.layer_decay
+                                        )
     optimizer = torch.optim.AdamW(param_groups, lr=args.lr)
     loss_scaler = NativeScaler()
 
@@ -333,9 +338,9 @@ def main(args):
             log_writer.add_scalar('perf/test_loss', test_stats['loss'], epoch)
 
         log_stats = {**{f'train_{k}': v for k, v in train_stats.items()},
-                        **{f'test_{k}': v for k, v in test_stats.items()},
-                        'epoch': epoch,
-                        'n_parameters': n_parameters}
+                     **{f'test_{k}': v for k, v in test_stats.items()},
+                     'epoch': epoch,
+                     'n_parameters': n_parameters}
 
         if args.output_dir and misc.is_main_process():
             if log_writer is not None:
@@ -352,5 +357,5 @@ if __name__ == '__main__':
     args = get_args_parser()
     args = args.parse_args()
     if args.output_dir:
-        Path(args.output_dir).mkdir(parents=True, exist_ok=True)
+        args.output_dir = f"{args.output_dir}/{args.model}/{args.seed}"
     main(args)

@@ -23,9 +23,6 @@ from torch.utils.tensorboard import SummaryWriter
 import torchvision.transforms as transforms
 import torchvision.datasets as datasets
 
-import timm
-
-# assert timm.__version__ == "0.3.2" # version check
 from timm.models.layers import trunc_normal_
 
 import util.misc as misc
@@ -37,6 +34,7 @@ from util.crop import RandomResizedCrop
 import models_vit
 
 from engine_finetune import train_one_epoch, evaluate
+from torchvision.transforms import InterpolationMode
 
 
 def get_args_parser():
@@ -67,7 +65,7 @@ def get_args_parser():
                         help='epochs to warmup LR')
 
     # * Finetuning params
-    parser.add_argument('--finetune', default='/home/max/Documents/output_dir/mae/checkpoint.pth',
+    parser.add_argument('--finetune', default='',
                         help='finetune from checkpoint')
     parser.add_argument('--global_pool', action='store_true')
     parser.set_defaults(global_pool=False)
@@ -80,7 +78,7 @@ def get_args_parser():
     parser.add_argument('--nb_classes', default=1000, type=int,
                         help='number of the classification types')
 
-    parser.add_argument('--output_dir', default='/home/max/Documents/output_dir/linear_prob/mae',
+    parser.add_argument('--output_dir', default='/home/max/Documents/output_dir/MAEL/linear_prob',
                         help='path where to save, empty for no saving')
     parser.add_argument('--log_dir', default='/home/max/Documents/output_dir/linear_prob/mae',
                         help='path where to tensorboard log')
@@ -130,12 +128,12 @@ def main(args):
 
     # linear probe: weak augmentation
     transform_train = transforms.Compose([
-            RandomResizedCrop(224, interpolation=3),
+            RandomResizedCrop(224, interpolation=InterpolationMode.BICUBIC),
             transforms.RandomHorizontalFlip(),
             transforms.ToTensor(),
             transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])])
     transform_val = transforms.Compose([
-            transforms.Resize(256, interpolation=3),
+            transforms.Resize(256, interpolation=InterpolationMode.BICUBIC),
             transforms.CenterCrop(224),
             transforms.ToTensor(),
             transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])])
@@ -163,12 +161,6 @@ def main(args):
     else:
         sampler_train = torch.utils.data.RandomSampler(dataset_train)
         sampler_val = torch.utils.data.SequentialSampler(dataset_val)
-
-    if global_rank == 0 and args.log_dir is not None and not args.eval:
-        os.makedirs(args.log_dir, exist_ok=True)
-        log_writer = SummaryWriter(log_dir=args.log_dir)
-    else:
-        log_writer = None
 
     data_loader_train = torch.utils.data.DataLoader(
         dataset_train, sampler=sampler_train,
@@ -217,6 +209,10 @@ def main(args):
         # manually initialize fc layer: following MoCo v3
         trunc_normal_(model.head.weight, std=0.01)
 
+        old_args = checkpint['args']
+        args.output_dir = old_args.output_dir.replace("pretrained", "linear-probe")
+        args.log_dir = old.args.log_dir.replace("pretrained", "linear-probe")
+
     # for linear prob only
     # hack: revise model's head with BN
     model.head = torch.nn.Sequential(torch.nn.BatchNorm1d(model.head.in_features, affine=False, eps=1e-6), model.head)
@@ -235,7 +231,15 @@ def main(args):
     print('number of params (M): %.2f' % (n_parameters / 1.e6))
 
     eff_batch_size = args.batch_size * args.accum_iter * misc.get_world_size()
-    
+
+    if args.output_dir:
+        Path(args.output_dir).mkdir(parents=True, exist_ok=True)
+
+    if global_rank == 0 and args.log_dir is not None and not args.eval:
+        os.makedirs(args.log_dir, exist_ok=True)
+        log_writer = SummaryWriter(log_dir=args.log_dir)
+    else:
+        log_writer = None
     if args.lr is None:  # only base_lr is specified
         args.lr = args.blr * eff_batch_size / 256
 
@@ -312,5 +316,5 @@ if __name__ == '__main__':
     args = get_args_parser()
     args = args.parse_args()
     if args.output_dir:
-        Path(args.output_dir).mkdir(parents=True, exist_ok=True)
+        args.output_dir = f"{args.output_dir}/{args.model}/{args.seed}"
     main(args)

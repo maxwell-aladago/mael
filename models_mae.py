@@ -178,7 +178,6 @@ class MaskedAutoencoderViT(nn.Module):
         x_ = torch.cat([x[:, 1:, :], mask_tokens], dim=1)  # no cls token
         x_ = torch.gather(x_, dim=1, index=ids_restore.unsqueeze(-1).repeat(1, 1, x.shape[2]))  # unshuffle
 
-        N, L, d = x_.shape
         x = torch.cat([x[:, :1, :], x_], dim=1)  # append cls and text tokens
 
         # add pos embed
