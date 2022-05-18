@@ -45,7 +45,7 @@ def get_args_parser():
                         help='Accumulate gradient iterations (for increasing the effective batch size under memory constraints)')
 
     # Model parameters
-    parser.add_argument('--model', default='vit_large_patch16', type=str, metavar='MODEL',
+    parser.add_argument('--model', default='vit_base_patch16', type=str, metavar='MODEL',
                         help='Name of model to train')
 
     parser.add_argument('--input_size', default=224, type=int,
@@ -106,7 +106,8 @@ def get_args_parser():
                         help='How to apply mixup/cutmix params. Per "batch", "pair", or "elem"')
 
     # * Finetuning params
-    parser.add_argument('--finetune', default='',
+    parser.add_argument('--finetune', default='/home/max/Documents/output_dir/MAEL/pretrained/'
+                                              'mae_vit_base_patch16-PTLM_True/0.75-all_tokens/0/checkpoint.pth',
                         help='finetune from checkpoint')
     parser.add_argument('--global_pool', action='store_true')
     parser.set_defaults(global_pool=True)
@@ -119,9 +120,9 @@ def get_args_parser():
     parser.add_argument('--nb_classes', default=1000, type=int,
                         help='number of the classification types')
 
-    parser.add_argument('--output_dir', default='/home/max/Documents/output_dir/mae/finetune',
+    parser.add_argument('--output_dir', default='/home/max/Documents/output_dir/MAEL/finetune',
                         help='path where to save, empty for no saving')
-    parser.add_argument('--log_dir', default='/home/max/Documents/output_dir/mae/finetune',
+    parser.add_argument('--log_dir', default='/home/max/Documents/output_dir/MAEL/finetune',
                         help='path where to tensorboard log')
     parser.add_argument('--device', default='cuda',
                         help='device to use for training / testing')
@@ -248,9 +249,9 @@ def main(args):
         # manually initialize fc layer
         trunc_normal_(model.head.weight, std=2e-5)
 
-        old_args = checkpint['args']
+        old_args = checkpoint['args']
         args.output_dir = old_args.output_dir.replace("pretrained", "finetuned")
-        args.log_dir = old.args.log_dir.replace("pretrained", "finetuned")
+        args.log_dir = old_args.log_dir.replace("pretrained", "finetuned")
 
     model.to(device)
 

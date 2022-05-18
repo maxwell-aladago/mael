@@ -65,7 +65,8 @@ def get_args_parser():
                         help='epochs to warmup LR')
 
     # * Finetuning params
-    parser.add_argument('--finetune', default='',
+    parser.add_argument('--finetune', default='/home/max/Documents/output_dir/MAEL/pretrained/'
+                                              'mae_vit_base_patch16-PTLM_True/0.75-all_tokens/0/checkpoint.pth',
                         help='finetune from checkpoint')
     parser.add_argument('--global_pool', action='store_true')
     parser.set_defaults(global_pool=False)
@@ -78,9 +79,9 @@ def get_args_parser():
     parser.add_argument('--nb_classes', default=1000, type=int,
                         help='number of the classification types')
 
-    parser.add_argument('--output_dir', default='/home/max/Documents/output_dir/MAEL/linear_prob',
+    parser.add_argument('--output_dir', default='/home/max/Documents/output_dir/MAEL/linear_probe',
                         help='path where to save, empty for no saving')
-    parser.add_argument('--log_dir', default='/home/max/Documents/output_dir/linear_prob/mae',
+    parser.add_argument('--log_dir', default='/home/max/Documents/output_dir/MAEL/linear_probe',
                         help='path where to tensorboard log')
     parser.add_argument('--device', default='cuda',
                         help='device to use for training / testing')
@@ -209,9 +210,9 @@ def main(args):
         # manually initialize fc layer: following MoCo v3
         trunc_normal_(model.head.weight, std=0.01)
 
-        old_args = checkpint['args']
-        args.output_dir = old_args.output_dir.replace("pretrained", "linear-probe")
-        args.log_dir = old.args.log_dir.replace("pretrained", "linear-probe")
+        old_args = checkpoint['args']
+        args.output_dir = old_args.output_dir.replace("pretrained", "linear_probe")
+        args.log_dir = old_args.log_dir.replace("pretrained", "linear_probe")
 
     # for linear prob only
     # hack: revise model's head with BN
